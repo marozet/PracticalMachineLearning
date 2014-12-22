@@ -1,0 +1,152 @@
+---
+title: "Human Activity Recognition - Weight Lifting Exercises"
+author: "Marozet"
+date: "Sunday, December 21, 2014"
+output: html_document
+---
+**Overview**
+This Write up presents the analysis of Weight Lifting Exercises from the HAR project.
+
+Let's first load the file and do some cleaning.
+
+```{r load Data}
+library(caret)
+har<-read.csv("pml-training.csv");
+```
+
+We will drop all variables before num_window
+```{r dataset tidying}
+har1<-har[,7:ncol(har)];
+```
+
+Then repair broken import. Some numeric variables were imported as Factors. Let's change it to num
+```{r, warning=FALSE}
+classes <- lapply(har1,class)
+for (i in 1:(ncol(har1)-1)) { if (classes[i]=="factor") {har1[,i]=as.numeric(as.character(har1[,i])) }}
+```
+
+The learning process and tuning will be done using traninng data with reapered K-fold crossvalidation. This will give initial evaluation of accuracy. To further test the accracy completely out of sample we will use labelled test data. The split will be 80% to 20%.
+```{r split_the_data}
+inTrain<-createDataPartition(y=har$classe,p=0.8,list=FALSE)
+har.train<-har1[inTrain,]
+har.test<-har1[-inTrain,]
+```
+
+We will also test the variables for missing values. If a variable has more that 97% NAs we will not use it the analysis.
+```{r dataset tyding countinues}
+missingCnt<-vector(mode = "logical", length = ncol(har.train))
+for (i in 1:ncol(har.train)) { missingCnt[i]<-length(which(is.na(har.train[,i]))) }
+missingPrc = missingCnt/nrow(har.train)
+har.train<-subset(har.train,,missingPrc<0.97)
+har.test<-subset(har.test,,missingPrc<0.97)
+```
+
+Let's do a quick overview of Machine Learing methods. We will test Support Vector Machines, Random Forrests and Stochastic Gradient Boosting each with or without PCA. This will be done on a very small sample to evaluate accuracy and speed.
+
+```{r prepare_ML}
+set.seed(11);
+har.train<-har.train[sample(nrow(har.train)),];
+
+har.trainsmall <- har.train[1:750,];
+
+ctrl <- trainControl(method = "repeatedcv",number=5, repeats=3)
+```
+```{r SVM}
+#Support Vector Machines
+pt<-proc.time()
+modSvm <- train(classe~.,method="svmLinear",data=har.trainsmall,trControl=ctrl)
+proc.time()-pt
+
+
+#Support Vector Machines with PCA
+pt<-proc.time()
+modSvmPCA <- train(classe~.,method="svmLinear",data=har.trainsmall,trControl=ctrl,preProcess=c("pca"))
+proc.time()-pt
+```
+```{r RandomForrests, warning=FALSE}
+#Random Forrests
+pt<-proc.time()
+modRf <- train(classe~.,method="rf",data=har.trainsmall,trControl=ctrl,importance = TRUE)
+proc.time()-pt
+
+
+#Random Forrests with PCA
+pt<-proc.time()
+modRfPCA <- train(classe~.,method="rf",data=har.trainsmall,trControl=ctrl,importance = TRUE,preProcess=c("pca"))
+proc.time()-pt
+```
+```{r GBMs, warning=FALSE}
+#Stochastic Gradient Boosting
+pt<-proc.time()
+modGbm <- train(classe~.,method="gbm",data=har.trainsmall,trControl=ctrl, verbose=FALSE)
+proc.time()-pt
+
+
+#Stochastic Gradient Boosting with PCA
+pt<-proc.time()
+modGbmPCA <- train(classe~.,method="gbm",data=har.trainsmall,trControl=ctrl, verbose=FALSE,preProcess=c("pca") )
+proc.time()-pt
+```
+Let's see the results:
+```{r evaluation results}
+results <- resamples(list(SVM=modSvm,SVM_PCA=modSvmPCA, RF=modRf,RF_PCA=modRfPCA, GBM=modGbm, GBM_PCA=modGbmPCA));
+summary(results);
+```
+
+Random Forrest is a winner in terms of Accuracy but it takes around twice as long as Stochastic Gradient Boosting which has only a slightly lower accuracy. Support Vector Machines algorithm is a lot faster but the accuracy is a lot lower. 
+Using PCA speeds up the analysis but worsens the accuracy.
+
+We will use GBM algorithm without PCA. 
+(I admit. I've started it to late, and it's almost deadline. Thus I will a smaller random sample of N=5000.)
+```{r fullGBM, warning=FALSE}
+#Stochastic Gradient Boosting
+har.trainsmall <- har.train[1:5000,];
+pt<-proc.time()
+modGbm <- train(classe~.,method="gbm",data=har.trainsmall,trControl=ctrl, verbose=FALSE)
+proc.time()-pt
+```
+The output below will give us an estimate of out of sample accuracy.
+```{r GBM}
+modGbm
+```
+
+Let's now check accuracy on the labelled test set. This will be the true estimation of the out of sample accuracy as no part of this data was used to tune the model.
+```{r confusionMatrix, warning=FALSE}
+predGbm <- predict(modGbm,har.test)
+confusionMatrix(predGbm,har.test$classe)
+```
+
+and visialize data showing the most important variables:
+
+
+```{r DataVisualization, echo=FALSE}
+har.test$predRight<-predGbm==har.test$classe
+qplot(har.test$num_window,har.test$pitch_forearm,color=har.test$classe,data=har.test,size=!har.test$predRight,shape=!har.test$predRight, main="Stochastic Gradient Boosting prediction visualisation",xlab="num_window",ylab="pitch_forearm")
+
+```
+
+Let's try our results on the 20 cases from the Submission test file:
+```{r test, warning=FALSE}
+test<-read.csv("pml-testing.csv");
+
+# drop all variables before num_window
+test<-test[,7:ncol(har)];
+
+#repair broken import Factors to Num.
+for (i in 1:(ncol(test)-1)) { if (classes[i]=="factor") {test[,i]=as.numeric(as.character(test[,i])) }}
+
+test<-subset(test,,missingPrc<0.97)
+testpredRf <- predict(modGbm,test)
+testpredRf
+```
+```{r, echo=FALSE}
+ pml_write_files = function(x){
+   n = length(x)
+   for(i in 1:n){
+     filename = paste0("problem_id_",i,".txt")
+     write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+   }
+ }
+ 
+ pml_write_files(testpredRf)
+```
