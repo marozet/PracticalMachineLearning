@@ -4,6 +4,7 @@ author: "Marozet"
 date: "Sunday, January 25, 2015"
 output: html_document
 ---
+##Human Activity Recognition - Weight Lifting Exercises
 **Overview**
 This Write up presents the analysis of Weight Lifting Exercises from the HAR project.
 
