@@ -1,7 +1,7 @@
 ---
 title: "Human Activity Recognition - Weight Lifting Exercises"
 author: "Marozet"
-date: "Sunday, December 21, 2014"
+date: "Sunday, January 25, 2015"
 output: html_document
 ---
 **Overview**
